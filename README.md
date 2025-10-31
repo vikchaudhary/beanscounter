@@ -10,11 +10,13 @@ Created Fri Oct 31, 2025 in San Francisco
 
 ## What It Does
 
-- Scans a directory for `*.pdf` PayPal invoices.
-- Extracts invoice data (placeholder parsing for now).
-- Writes QuickBooks-style CSV files to an output folder.
+The purpose of this project is to import PayPal or other invoices into QuickBooks.
 
-CSV schema will evolve. The placeholder flow currently writes minimal fields (e.g., `InvoiceNumber`) and is intended to be expanded.
+- Scans a directory for `*.pdf` PayPal invoices.
+- Extracts invoice data, and supports the PayPal invoice format.
+- Writes QuickBooks-style CSV files to an output folder.
+- These CSV files can be imported into QuickBooks only if there is no Sales Tax on the items, which is a QuickBooks limitation (unbelievable, I know).
+- As a next step, I plan to add the ability to bypass QuickBooks' Sales Tax limitation by creating an invoice directly in QuickBooks.
 
 ## Project Structure
 
@@ -27,7 +29,7 @@ CSV schema will evolve. The placeholder flow currently writes minimal fields (e.
 ## Prerequisites
 
 - Python `>=3.9` (tested on macOS)
-- Optional (later): Node.js `>=18` for the frontend
+- Node.js `>=18` for the frontend (later)
 
 ## Setup
 
@@ -83,19 +85,21 @@ Run backend tests:
 make test
 ```
 
-## Status & Caveats
+## Caveats
 
-- Parsing is a placeholder; real PDF extraction and mapping are pending.
-- CSV headers and schema will change as QuickBooks import requirements are finalized.
-- Do not use in production; interfaces and behavior may change without notice.
+- This is version 0.1.0 and is not ready for production use.
+- Interfaces and behavior may change without notice.
+- Author takes no responsibility for any damage or loss incurred from using this software.
 
-## Contributing
+## Contributors
+
+If interested in contributing, please contact me at vik.chaudhary@gmail.com, and then open an issue or PR. Generous attribution will be given to substantial contributors.
 
 - Keep business logic in `backend/src/paypal2quickbooks/core/`.
 - Orchestration lives in `backend/src/paypal2quickbooks/services/`.
 - CLI under `backend/src/paypal2quickbooks/cli.py`.
 - API routers under `backend/src/paypal2quickbooks/api/routers/`.
 
-Open an issue or PR with proposed changes and tests where applicable.
+Open an issue or PR with proposed changes and tests.
 
 
