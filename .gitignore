@@ -1,3 +1,5 @@
+# Project-specific
+backend/tests/fixtures/sample_pdfs/
 # Misc
 .DS_Store
 
