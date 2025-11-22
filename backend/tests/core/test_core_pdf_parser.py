@@ -1,5 +1,5 @@
 from pathlib import Path
-from paypal2quickbooks.core.pdf_parser import parse_pdf
+from beanscounter.core.pdf_parser import parse_pdf
 
 def test_parse_pdf_placeholder(tmp_path: Path):
     pdf = tmp_path / "sample.pdf"

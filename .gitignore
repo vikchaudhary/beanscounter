@@ -1,5 +1,8 @@
 # Project-specific
+backend/data
 backend/tests/fixtures/sample_pdfs/
+frontend/node_modules
+
 # Misc
 .DS_Store
 

@@ -28,8 +28,8 @@ from pathlib import Path
 from typing import Dict, Any, List
 
 # Import refactored modules
-from paypal2quickbooks.core.csv_reader import parse_csv
-from paypal2quickbooks.integrations.quickbooks_client import QuickBooksClient
+from beanscounter.core.csv_reader import parse_csv
+from beanscounter.integrations.quickbooks_client import QuickBooksClient
 
 
 def create_invoice_from_csv(csv_path: str) -> Dict[str, Any]:

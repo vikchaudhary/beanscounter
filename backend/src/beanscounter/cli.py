@@ -1,7 +1,7 @@
-# module: paypal2quickbooks.cli
+# module: beanscounter.cli
 from pathlib import Path
 import typer
-from paypal2quickbooks.services.converter_service import convert_directory
+from beanscounter.services.converter_service import convert_directory
 
 app = typer.Typer()
 

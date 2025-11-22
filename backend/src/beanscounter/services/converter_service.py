@@ -1,7 +1,7 @@
 from pathlib import Path
-from paypal2quickbooks.core.pdf_parser import parse_pdf
-from paypal2quickbooks.core.invoice_mapper import map_to_quickbooks
-from paypal2quickbooks.core.csv_writer import write_csv
+from beanscounter.core.pdf_parser import parse_pdf
+from beanscounter.core.invoice_mapper import map_to_quickbooks
+from beanscounter.core.csv_writer import write_csv
 
 def convert_directory(input_dir: Path, output_dir: Path) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
