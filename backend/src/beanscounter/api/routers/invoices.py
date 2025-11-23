@@ -20,26 +20,80 @@ def health():
 
 @router.get("/pos")
 def list_pos() -> List[Dict[str, str]]:
-    """List available PO files."""
+    """List available PO files with extracted metadata."""
     if not PO_DIR.exists():
         return []
     
+    reader = POReader()
     pos = []
+    
+    # Process PDF files
     for f in PO_DIR.glob("*.pdf"):
-        pos.append({
-            "id": f.name,
-            "filename": f.name,
-            "date": "2023-11-21" # Placeholder, in real app we'd read file stats or metadata
-        })
-    # Also look for images if needed, but user said "image file or PDF"
-    # Let's add basic image support
-    for ext in ["*.png", "*.jpg", "*.jpeg"]:
-        for f in PO_DIR.glob(ext):
-             pos.append({
+        try:
+            # Extract basic metadata from the PO
+            extracted = reader.extract_data(f)
+            
+            # Format amount properly
+            invoice_amount = extracted.get("invoice_amount", 0)
+            formatted_amount = f"${invoice_amount:.2f}" if invoice_amount else ""
+            
+            pos.append({
                 "id": f.name,
                 "filename": f.name,
-                "date": "2023-11-21"
+                "vendor_name": extracted.get("customer", "Unknown"),  # Backend uses 'customer'
+                "po_number": extracted.get("po_number", ""),
+                "date": extracted.get("order_date", ""),  # Backend uses 'order_date'
+                "delivery_date": extracted.get("delivery_date", ""),
+                "amount": formatted_amount,  # Backend uses 'invoice_amount'
+                "status": "Open"  # Default status
             })
+        except Exception as e:
+            # If extraction fails, still include the file with minimal info
+            print(f"Error extracting {f.name}: {e}")
+            pos.append({
+                "id": f.name,
+                "filename": f.name,
+                "vendor_name": "Unknown",
+                "po_number": "",
+                "date": "",
+                "delivery_date": "",
+                "amount": "",
+                "status": "Open"
+            })
+    
+    # Also process image files
+    for ext in ["*.png", "*.jpg", "*.jpeg"]:
+        for f in PO_DIR.glob(ext):
+            try:
+                extracted = reader.extract_data(f)
+                
+                # Format amount properly
+                invoice_amount = extracted.get("invoice_amount", 0)
+                formatted_amount = f"${invoice_amount:.2f}" if invoice_amount else ""
+                
+                pos.append({
+                    "id": f.name,
+                    "filename": f.name,
+                    "vendor_name": extracted.get("customer", "Unknown"),
+                    "po_number": extracted.get("po_number", ""),
+                    "date": extracted.get("order_date", ""),
+                    "delivery_date": extracted.get("delivery_date", ""),
+                    "amount": formatted_amount,
+                    "status": "Open"
+                })
+            except Exception as e:
+                print(f"Error extracting {f.name}: {e}")
+                pos.append({
+                    "id": f.name,
+                    "filename": f.name,
+                    "vendor_name": "Unknown",
+                    "po_number": "",
+                    "date": "",
+                    "delivery_date": "",
+                    "amount": "",
+                    "status": "Open"
+                })
+    
     return pos
 
 @router.post("/pos/open-folder")
@@ -84,19 +138,39 @@ def parse_po(filename: str) -> Dict[str, Any]:
         
         frontend_items = []
         for item in data.get("items", []):
+            try:
+                rate = float(item.get('rate', 0))
+            except (ValueError, TypeError):
+                rate = 0.0
+            
+            try:
+                price = float(item.get('price', 0))
+            except (ValueError, TypeError):
+                price = 0.0
+
             frontend_items.append({
-                "description": item.get("product_name", ""),
+                "product_name": item.get("product_name", ""),
+                "description": item.get("product_name", ""), # Use product_name as description for now
                 "quantity": item.get("quantity", 0),
-                "unit_price": f"${item.get('rate', 0):.2f}",
-                "amount": f"${item.get('price', 0):.2f}"
+                "unit_price": f"${rate:.2f}",
+                "amount": f"${price:.2f}"
             })
             
         return {
             "vendor_name": data.get("customer", "Unknown"),
-            "vendor_address": data.get("customer_address", "Unknown"),
             "po_number": data.get("po_number", "Unknown"),
             "date": data.get("order_date", "Unknown"),
+            "delivery_date": data.get("delivery_date", "Unknown"),
+            "ordered_by": data.get("ordered_by", "Unknown"),
             "total_amount": f"${data.get('invoice_amount', 0):.2f}",
+            "bill_to": {
+                "name": data.get("customer", "Unknown"),
+                "address": data.get("customer_address", "Unknown")
+            },
+            "ship_to": {
+                "name": "Unknown", # Could be extracted if available
+                "address": data.get("delivery_address", "Unknown")
+            },
             "line_items": frontend_items
         }
     except Exception as e:

@@ -101,7 +101,21 @@ class POReader:
         
         # 1. Customer Name (Heuristic: First non-empty line usually, or from Ship To)
         # We'll refine this later with spatial data
-        
+        if data["customer"] == "Unknown":
+            for line in lines:
+                clean_line = line.strip()
+                if not clean_line: continue
+                # Skip common headers
+                if any(x in clean_line.lower() for x in ["purchase order", "invoice", "bill to", "ship to", "page", "date", "po #"]):
+                    continue
+                # Skip lines that look like dates or numbers
+                if re.match(r"^[\d\s\-\/\.]+$", clean_line):
+                    continue
+                
+                # Assume this is the vendor/customer name
+                data["customer"] = clean_line
+                break
+
         # 2. PO Number
         # Try specific patterns first
         po_patterns = [
@@ -166,9 +180,10 @@ class POReader:
         
         for i, line in enumerate(lines):
             lower_line = line.lower()
-            if "date" in lower_line:
+            # Check for Date OR Delivery keywords
+            if any(k in lower_line for k in ["date", "delivery", "ship", "due"]):
                 # Determine type based on THIS line (the label line)
-                is_delivery = "delivery" in lower_line
+                is_delivery = any(k in lower_line for k in ["delivery", "ship", "due"])
                 
                 # Look for date value in THIS line
                 dates_in_line = re.findall(date_pattern, line)
@@ -182,7 +197,10 @@ class POReader:
                     date_val = dates_in_line[0]
                     
                     if is_delivery:
-                        data["delivery_date"] = date_val
+                        # Avoid overwriting if we already found one, unless this one looks better?
+                        # For now, just take the first one we find
+                        if data["delivery_date"] == "Unknown":
+                            data["delivery_date"] = date_val
                     else:
                         # Assume Order Date if not already set
                         # We prioritize the first "Date" label we find for Order Date
@@ -213,6 +231,18 @@ class POReader:
                      else:
                          data["delivery_date"] = all_dates[0]
 
+        # 3b. Ordered By
+        if data.get("ordered_by", "Unknown") == "Unknown":
+            for line in lines:
+                if "ordered by" in line.lower() or "buyer" in line.lower() or "requester" in line.lower():
+                    # Extract value after colon or just end of line
+                    parts = re.split(r"[:\t]", line, 1)
+                    if len(parts) > 1:
+                        val = parts[1].strip()
+                        if val:
+                            data["ordered_by"] = val
+                            break
+
         # 4. Addresses (Heuristic: Look for "Bill To" and "Ship To")
         lower_text = text.lower()
         
@@ -230,7 +260,7 @@ class POReader:
                     if any(k in l.lower() for k in ["ship to:", "bill to:", "item", "qty", "total"]):
                         break
                     addr.append(l)
-                return ", ".join(addr)
+                return "\n".join(addr)
             return "Unknown"
 
         # Address (Bill To)
@@ -258,7 +288,7 @@ class POReader:
                     break
             
             if addr_parts:
-                data["customer_address"] = ", ".join(addr_parts)
+                data["customer_address"] = "\n".join(addr_parts)
             else:
                 data["customer_address"] = "Unknown"
         else:
@@ -302,7 +332,7 @@ class POReader:
                         break
                 
                 if addr_parts:
-                    data["delivery_address"] = ", ".join(addr_parts)
+                    data["delivery_address"] = "\n".join(addr_parts)
                 else:
                     data["delivery_address"] = "Unknown"
         else:
@@ -323,7 +353,8 @@ class POReader:
                 # console.print(f"DEBUG TABLE: {table}")
                 
                 header = [str(c).lower() for c in table[0] if c]
-                if any(x in header for x in ["qty", "quantity", "description", "item", "amount", "price"]):
+                # Broaden the check for relevant columns
+                if any(x in header for x in ["qty", "quantity", "units", "count", "description", "item", "product", "material", "sku", "amount", "price", "rate", "cost", "total"]):
                     # Identify columns
                     qty_idx = -1
                     desc_idx = -1
@@ -331,13 +362,13 @@ class POReader:
                     rate_idx = -1
                     
                     for i, col in enumerate(header):
-                        if "qty" in col or "quantity" in col:
+                        if any(k in col for k in ["qty", "quantity", "units", "count"]):
                             qty_idx = i
-                        elif "description" in col or "item" in col or "product" in col:
+                        elif any(k in col for k in ["description", "item", "product", "material", "sku", "details"]):
                             desc_idx = i
-                        elif "amount" in col or "total" in col:
+                        elif any(k in col for k in ["amount", "total", "ext price", "extended"]):
                             price_idx = i
-                        elif "rate" in col or "price" in col or "unit" in col:
+                        elif any(k in col for k in ["rate", "price", "unit", "cost"]):
                             rate_idx = i
                     
                     if desc_idx != -1:
@@ -392,70 +423,127 @@ class POReader:
         # Method B: Text-based line item extraction (fallback)
         if not items_found:
             # Look for lines that end with a number (amount) and have other numbers (qty, rate)
-            # Regex: Description ... Qty ... Rate ... Amount
-            # Or: Item ... Qty ... Rate ... Amount
             
-            # Find where items might start (after header)
+            # 1. Try to find a header line to start scanning
             start_scanning = False
-            for line in lines:
-                if any(x in line.lower() for x in ["item", "description", "qty", "quantity"]):
-                    start_scanning = True
-                    continue
+            header_keywords = ["item", "description", "qty", "quantity", "product", "material", "service", "part", "sku", "details", "unit price", "amount", "price"]
+            
+            potential_items = []
+            
+            for i, line in enumerate(lines):
+                lower_line = line.lower()
                 
-                if start_scanning:
-                    # Stop if we hit total
-                    if "total" in line.lower():
-                        break
+                # Check if this is a header line
+                if not start_scanning:
+                    if any(x in lower_line for x in header_keywords):
+                        # Make sure it's not just a random line with one of these words
+                        # It should ideally have at least two of these words or look like a header
+                        match_count = sum(1 for x in header_keywords if x in lower_line)
+                        if match_count >= 1:
+                            start_scanning = True
+                            continue
+                
+                # Stop scanning if we hit totals or notes
+                if "total" in lower_line and "subtotal" not in lower_line and len(line) < 40:
+                     # This might be the total line, stop here? 
+                     # But sometimes "Total" is in the description. 
+                     # Usually Total is at the start of the line or distinct.
+                     if re.match(r"^\s*total", lower_line):
+                         start_scanning = False
+                         break
+                
+                # If we are scanning, or if we haven't found a header but the line looks like an item
+                # (We'll filter later)
+                
+                # Remove currency symbols and commas for parsing numbers
+                clean_line = line.replace("$", "").replace(",", "")
+                parts = clean_line.split()
+                
+                nums = []
+                text_parts = []
+                for p in parts:
+                    try:
+                        val = float(p)
+                        nums.append(val)
+                    except ValueError:
+                        text_parts.append(p)
+                
+                # Heuristic: An item line usually has a description and at least one price-like number
+                # It shouldn't be a date line
+                if re.search(r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}", line):
+                    continue
+                    
+                desc = " ".join(text_parts)
+                
+                # Filter out obvious non-item lines
+                if len(desc) < 3: continue
+                if any(x in desc.lower() for x in ["page", "phone", "fax", "email", "bill to", "ship to"]): continue
+                
+                item_data = None
+                
+                if len(nums) >= 3:
+                    # Qty, Rate, Amount
+                    qty = nums[-3]
+                    rate = nums[-2]
+                    price = nums[-1]
+                    
+                    # Stricter sanity checks
+                    # 1. Qty should be reasonable (< 10000)
+                    # 2. Rate should be reasonable (< $1000)
+                    # 3. Price should match qty * rate (within 1% tolerance) OR be reasonable (< $100000)
+                    if qty < 10000 and rate < 1000:
+                        calculated_price = qty * rate
+                        price_matches = abs(calculated_price - price) < max(0.1, calculated_price * 0.01)
+                        price_reasonable = price < 100000
                         
-                    # Try to parse line
-                    # Look for at least 2 numbers
-                    # This regex looks for: (Description) (Number) (Number) (Number optional)
-                    # It's tricky. Let's try to find all numbers in the line.
-                    
-                    # Remove currency symbols
-                    clean_line = line.replace("$", "").replace(",", "")
-                    parts = clean_line.split()
-                    
-                    nums = []
-                    text_parts = []
-                    for p in parts:
-                        try:
-                            val = float(p)
-                            nums.append(val)
-                        except ValueError:
-                            text_parts.append(p)
-                    
-                    if len(nums) >= 3:
-                        # Assume: Qty, Rate, Amount (last 3 numbers usually, or Qty, Rate -> Amount)
-                        # If 3 nums: Qty, Rate, Amount
-                        qty = nums[-3]
-                        rate = nums[-2]
-                        price = nums[-1]
-                        desc = " ".join(text_parts)
+                        if price_matches or (price_reasonable and price > 0):
+                            item_data = {"product_name": desc, "quantity": qty, "rate": rate, "price": price}
                         
-                        # Sanity check: qty * rate approx price
-                        if abs(qty * rate - price) < 0.1:
-                             data["items"].append({
-                                "product_name": desc,
-                                "quantity": qty,
-                                "rate": rate,
-                                "price": price
-                            })
-                    elif len(nums) == 2:
-                        # Assume Qty, Rate (calculate Amount)
-                        # Or Rate, Amount?
-                        # Let's assume Qty, Rate if they are smallish?
-                        # Hard to guess. Let's assume Qty is first.
-                        qty = nums[0]
-                        rate = nums[1]
+                elif len(nums) == 2:
+                    # Qty, Rate or Rate, Amount?
+                    # Assume Qty, Rate -> Price
+                    qty = nums[0]
+                    rate = nums[1]
+                    
+                    # Sanity checks
+                    if qty < 10000 and rate < 1000:
                         price = qty * rate
-                        desc = " ".join(text_parts)
-                        data["items"].append({
-                                "product_name": desc,
-                                "quantity": qty,
-                                "rate": rate,
-                                "price": price
-                            })
+                        if price < 100000:
+                            item_data = {"product_name": desc, "quantity": qty, "rate": rate, "price": price}
+                    
+                elif len(nums) == 1:
+                    # Just Amount/Price?
+                    # This is very likely to be a partial line or garbage
+                    # Only accept if:
+                    # 1. Price is reasonable (< $500)
+                    # 2. Description looks like a product (has letters, not just numbers/symbols)
+                    # 3. Description is not too short (> 10 chars)
+                    price = nums[0]
+                    
+                    # Check if description looks valid
+                    has_letters = any(c.isalpha() for c in desc)
+                    desc_long_enough = len(desc) > 10
+                    price_reasonable = 0.01 < price < 500
+                    
+                    # Additional check: description shouldn't start with common non-product patterns
+                    desc_lower = desc.lower()
+                    looks_like_continuation = desc_lower.startswith(('oz)', '--', 'and', 'with', 'the'))
+                    
+                    if has_letters and desc_long_enough and price_reasonable and not looks_like_continuation:
+                        item_data = {"product_name": desc, "quantity": 1, "rate": price, "price": price}
+
+                if item_data:
+                    if start_scanning:
+                        data["items"].append(item_data)
+                    else:
+                        potential_items.append(item_data)
+            
+            # If we didn't find items via header scanning, use the potential ones
+            # but filter them strictly
+            if not data["items"] and potential_items:
+                # Use potential items if they look reasonable
+                # e.g. they are contiguous or look like a block
+                data["items"] = potential_items
 
 
         # 6. Invoice Amount

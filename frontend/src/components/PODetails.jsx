@@ -1,120 +1,91 @@
 import React from 'react';
-import { Check, AlertCircle, Loader2 } from 'lucide-react';
+import { Building2, Hash, Calendar, User, DollarSign, MapPin, Truck } from 'lucide-react';
+import { LineItemsTable } from './LineItemsTable';
 
 export function PODetails({ po, onExtract, isExtracting, extractedData }) {
-    if (!po) {
-        return (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
-                Select a document to view details
-            </div>
-        );
-    }
+    if (!po) return null;
+
+    // Use extractedData directly, no fallback
+    const data = extractedData || {};
+    const displayLineItems = data.line_items || [];
 
     return (
-        <div style={{
-            flex: 1,
-            height: '100vh',
-            backgroundColor: '#1e1e1e',
-            display: 'flex',
-            flexDirection: 'column',
-            borderRight: '1px solid #333'
-        }}>
-            <div style={{ padding: '20px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h2 style={{ margin: 0, fontSize: '18px', color: '#fff' }}>PO Details</h2>
-                <button
-                    onClick={() => onExtract(po)}
-                    disabled={isExtracting}
-                    style={{
-                        backgroundColor: '#4a9eff',
-                        color: '#fff',
-                        border: 'none',
-                        padding: '8px 16px',
-                        borderRadius: '6px',
-                        cursor: isExtracting ? 'not-allowed' : 'pointer',
-                        fontSize: '13px',
-                        fontWeight: 500,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        opacity: isExtracting ? 0.7 : 1
-                    }}
-                >
-                    {isExtracting ? <Loader2 size={16} className="animate-spin" /> : null}
-                    {isExtracting ? 'Refreshing...' : 'Refresh Data'}
-                </button>
-            </div>
+        <div style={{ padding: '24px', height: '100%', overflowY: 'auto' }}>
+            {/* Purchase Order Information */}
+            <SectionCard title="Purchase Order Information">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                    <InfoItem icon={Building2} label="Customer Name" value={data.vendor_name} />
+                    <InfoItem icon={Hash} label="PO Number" value={data.po_number} />
+                    <InfoItem icon={Calendar} label="Order Date" value={data.date} />
+                    <InfoItem icon={Truck} label="Delivery Date" value={data.delivery_date} />
+                    <InfoItem icon={User} label="Ordered By" value={data.ordered_by} />
+                    <InfoItem icon={DollarSign} label="Total Amount" value={data.total_amount} />
+                </div>
+            </SectionCard>
 
-            <div style={{ padding: '20px', overflowY: 'auto' }}>
-                {extractedData ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                        <Section title="Vendor Information">
-                            <Field label="Vendor Name" value={extractedData.vendor_name} />
-                            <Field label="Address" value={extractedData.vendor_address} />
-                        </Section>
-
-                        <Section title="Invoice Details">
-                            <Field label="PO Number" value={extractedData.po_number} />
-                            <Field label="Date" value={extractedData.date} />
-                            <Field label="Total Amount" value={extractedData.total_amount} highlight />
-                        </Section>
-
-                        <Section title="Line Items">
-                            {extractedData.line_items?.map((item, i) => (
-                                <div key={i} style={{
-                                    backgroundColor: '#2a2a2a',
-                                    padding: '10px',
-                                    borderRadius: '6px',
-                                    marginBottom: '8px',
-                                    fontSize: '13px'
-                                }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                        <span style={{ color: '#fff' }}>{item.description}</span>
-                                        <span style={{ color: '#fff', fontWeight: 500 }}>{item.amount}</span>
-                                    </div>
-                                    <div style={{ color: '#888' }}>Qty: {item.quantity} × {item.unit_price}</div>
-                                </div>
+            {/* Addresses */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginTop: '24px' }}>
+                <SectionCard title="Bill To" icon={MapPin}>
+                    <div style={{ marginTop: '12px' }}>
+                        <div style={{ fontWeight: 600, color: '#111827', marginBottom: '4px' }}>{data.bill_to?.name || 'Unknown'}</div>
+                        <div style={{ color: '#6b7280', fontSize: '14px', lineHeight: '1.5' }}>
+                            {(data.bill_to?.address || 'Unknown').split('\n').map((line, i) => (
+                                <div key={i}>{line}</div>
                             ))}
-                        </Section>
+                        </div>
                     </div>
-                ) : (
-                    <div style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        height: '300px',
-                        color: '#666',
-                        gap: '10px'
-                    }}>
-                        <AlertCircle size={32} />
-                        <p>No data extracted yet</p>
+                </SectionCard>
+                <SectionCard title="Ship To" icon={Truck}>
+                    <div style={{ marginTop: '12px' }}>
+                        <div style={{ fontWeight: 600, color: '#111827', marginBottom: '4px' }}>{data.ship_to?.name || 'Unknown'}</div>
+                        <div style={{ color: '#6b7280', fontSize: '14px', lineHeight: '1.5' }}>
+                            {(data.ship_to?.address || 'Unknown').split('\n').map((line, i) => (
+                                <div key={i}>{line}</div>
+                            ))}
+                        </div>
                     </div>
-                )}
+                </SectionCard>
+            </div>
+
+
+            {/* Products */}
+            <div style={{ marginTop: '24px', backgroundColor: '#fff', borderRadius: '12px', padding: '24px', border: '1px solid #e5e7eb' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', marginBottom: '20px' }}>Products</h3>
+                <LineItemsTable lineItems={displayLineItems} editable={false} />
+            </div>
+
+            {/* Note */}
+            <div style={{ marginTop: '24px', backgroundColor: '#eff6ff', borderRadius: '8px', padding: '16px', border: '1px solid #dbeafe' }}>
+                <p style={{ margin: 0, fontSize: '13px', color: '#1e40af', lineHeight: '1.5' }}>
+                    <strong>Note:</strong> The information displayed here has been extracted from the purchase order document. Please verify all details before converting to an invoice.
+                </p>
             </div>
         </div>
     );
 }
 
-function Section({ title, children }) {
+function SectionCard({ title, icon: Icon, children }) {
     return (
-        <div>
-            <h3 style={{ fontSize: '12px', textTransform: 'uppercase', color: '#666', letterSpacing: '0.5px', marginBottom: '10px' }}>{title}</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {children}
+        <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', border: '1px solid #e5e7eb' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+                {Icon && <Icon size={18} color="#6b7280" />}
+                <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', margin: 0 }}>{title}</h3>
             </div>
+            {children}
         </div>
     );
 }
 
-function Field({ label, value, highlight }) {
+function InfoItem({ icon: Icon, label, value }) {
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <span style={{ fontSize: '12px', color: '#888' }}>{label}</span>
-            <span style={{
-                fontSize: '14px',
-                color: highlight ? '#4a9eff' : '#fff',
-                fontWeight: highlight ? 600 : 400
-            }}>{value || '-'}</span>
+        <div style={{ display: 'flex', gap: '12px' }}>
+            <div style={{ marginTop: '2px' }}>
+                <Icon size={18} color="#9ca3af" />
+            </div>
+            <div>
+                <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '2px' }}>{label}</div>
+                <div style={{ fontSize: '14px', fontWeight: 500, color: '#111827' }}>{value || '-'}</div>
+            </div>
         </div>
     );
 }
