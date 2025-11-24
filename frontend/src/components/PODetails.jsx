@@ -25,21 +25,21 @@ export function PODetails({ po, onExtract, isExtracting, extractedData }) {
 
             {/* Addresses */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginTop: '24px' }}>
-                <SectionCard title="Bill To" icon={MapPin}>
-                    <div style={{ marginTop: '12px' }}>
-                        <div style={{ fontWeight: 600, color: '#111827', marginBottom: '4px' }}>{data.bill_to?.name || 'Unknown'}</div>
-                        <div style={{ color: '#6b7280', fontSize: '14px', lineHeight: '1.5' }}>
-                            {(data.bill_to?.address || 'Unknown').split('\n').map((line, i) => (
-                                <div key={i}>{line}</div>
-                            ))}
-                        </div>
-                    </div>
-                </SectionCard>
                 <SectionCard title="Ship To" icon={Truck}>
                     <div style={{ marginTop: '12px' }}>
                         <div style={{ fontWeight: 600, color: '#111827', marginBottom: '4px' }}>{data.ship_to?.name || 'Unknown'}</div>
                         <div style={{ color: '#6b7280', fontSize: '14px', lineHeight: '1.5' }}>
                             {(data.ship_to?.address || 'Unknown').split('\n').map((line, i) => (
+                                <div key={i}>{line}</div>
+                            ))}
+                        </div>
+                    </div>
+                </SectionCard>
+                <SectionCard title="Bill To" icon={MapPin}>
+                    <div style={{ marginTop: '12px' }}>
+                        <div style={{ fontWeight: 600, color: '#111827', marginBottom: '4px' }}>{data.bill_to?.name || 'Unknown'}</div>
+                        <div style={{ color: '#6b7280', fontSize: '14px', lineHeight: '1.5' }}>
+                            {(data.bill_to?.address || 'Unknown').split('\n').map((line, i) => (
                                 <div key={i}>{line}</div>
                             ))}
                         </div>
@@ -51,7 +51,7 @@ export function PODetails({ po, onExtract, isExtracting, extractedData }) {
             {/* Products */}
             <div style={{ marginTop: '24px', backgroundColor: '#fff', borderRadius: '12px', padding: '24px', border: '1px solid #e5e7eb' }}>
                 <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', marginBottom: '20px' }}>Products</h3>
-                <LineItemsTable lineItems={displayLineItems} editable={false} />
+                <LineItemsTable lineItems={data.line_items} editable={false} />
             </div>
 
             {/* Note */}

@@ -2,6 +2,9 @@ import React from 'react';
 import { Trash2 } from 'lucide-react';
 
 export function LineItemsTable({ lineItems, editable = false, onItemChange, onDeleteItem }) {
+    // Ensure lineItems is always an array
+    const safeLineItems = lineItems || [];
+
     const thStyle = {
         textAlign: 'left',
         padding: editable ? '0 10px' : '12px 0',
@@ -30,7 +33,7 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
         outline: 'none'
     };
 
-    const totalAmount = lineItems.reduce((sum, item) => {
+    const totalAmount = safeLineItems.reduce((sum, item) => {
         const amount = typeof item.amount === 'string'
             ? parseFloat(item.amount.replace(/[^0-9.-]+/g, '')) || 0
             : item.amount || 0;
@@ -57,7 +60,7 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
                     </tr>
                 </thead>
                 <tbody>
-                    {lineItems.map((item, i) => {
+                    {safeLineItems.map((item, i) => {
                         const itemId = item.id || i;
                         const productName = item.product_name || item.product || '';
                         const description = item.description || '';
@@ -70,7 +73,7 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
                                 key={itemId}
                                 style={{
                                     backgroundColor: editable ? '#f9fafb' : 'transparent',
-                                    borderBottom: !editable && i < lineItems.length - 1 ? '1px solid #f9fafb' : 'none'
+                                    borderBottom: !editable && i < safeLineItems.length - 1 ? '1px solid #f9fafb' : 'none'
                                 }}
                             >
                                 <td style={tdStyle}>
@@ -172,7 +175,7 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
                         >
                             {editable
                                 ? `$${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                : (typeof lineItems[0]?.amount === 'string' && lineItems[0]?.amount.includes('$'))
+                                : (typeof safeLineItems[0]?.amount === 'string' && safeLineItems[0]?.amount.includes('$'))
                                     ? `$${totalAmount.toFixed(2)}`
                                     : totalAmount
                             }
