@@ -53,7 +53,7 @@ class POReader:
                                     except Exception:
                                         pass
 
-                        # Spatial extraction for "ATTN:" (Address)
+                        # Spatial extraction for "ATTN:" (Address) - fallback if Bill To not found
                         if not attn_text:
                             matches = page.search("ATTN:", case=False)
                             if matches:
@@ -119,7 +119,9 @@ class POReader:
         # 2. PO Number
         # Try specific patterns first
         po_patterns = [
-            r"(?:PO|Order)\s*(?:#|Number|No\.?)?\s*[:.]?\s*([A-Za-z0-9-_]+)",
+            # Allow spaces within PO number, but not at the end (e.g., "MB-PFS-IBE251125 TUE")
+            # Use [ \t] instead of \s to avoid matching newlines
+            r"(?:PO|Order)[ \t]*(?:#|Number|No\.?)?[ \t]*[:.]?[ \t]*([A-Za-z0-9][A-Za-z0-9-_]*(?:[ \t]+[A-Za-z0-9]+)?)\b",
             r"PO[_-][\d]+",
         ]
         for pat in po_patterns:
@@ -137,45 +139,54 @@ class POReader:
             if data["po_number"] != "Unknown":
                 break
         
-        # Fallback: Look for label on one line and value on the next
+        # Fallback: Look for label on one line and value on the next few lines
         if data["po_number"] == "Unknown":
             for i, line in enumerate(lines):
                 clean_line = line.strip().lower()
                 # Check if line looks like a header containing PO info
-                if re.search(r"(?:po|purchase order)\s*(?:#|number|no\.?)?", clean_line):
-                    # Check next line
-                    if i + 1 < len(lines):
-                        next_line = lines[i+1].strip()
+                # Require "#" or "number" to avoid matching document titles like "PURCHASE ORDER"
+                if re.search(r"(?:po|purchase order)\s*(?:#|number|no\.)", clean_line):
+                    # Check next few lines (not just immediate next line)
+                    # Collect all candidate tokens, then pick the best one
+                    candidates = []
+                    for j in range(i + 1, min(i + 4, len(lines))):
+                        next_line = lines[j].strip()
+                        if not next_line:
+                            continue
                         # Split next line into tokens
                         tokens = next_line.split()
-                        # Look for a token that looks like a PO number (not a date, alphanumeric)
                         for token in tokens:
                             # Skip dates
                             if re.match(r"^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$", token):
                                 continue
                             # Skip common words
-                            if token.lower() in ["net", "30", "terms", "date"]:
+                            if token.lower() in ["net", "30", "terms", "date", "united", "states"]:
                                 continue
                             
                             if len(token) > 2 and re.search(r"\d", token): # Must have at least one digit
-                                data["po_number"] = token
-                                break
-                        if data["po_number"] != "Unknown":
-                            break
+                                # Add to candidates with priority score
+                                priority = 0
+                                if "_" in token or "-" in token:
+                                    priority = 2  # High priority
+                                elif token.startswith("PO") or token.startswith("po"):
+                                    priority = 1  # Medium priority
+                                candidates.append((priority, token))
+                    
+                    # Select the best candidate (highest priority)
+                    if candidates:
+                        candidates.sort(key=lambda x: x[0], reverse=True)
+                        data["po_number"] = candidates[0][1]
+                        break
 
-        # 3. Dates
-        # Heuristic: Look for lines containing "Date"
-        # If line has "Date" but not "Delivery" -> Order Date
-        # If line has "Date" and "Delivery" -> Delivery Date
-        
-        date_pattern = r"(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})"
-        
+
         # 3. Dates
         # Heuristic: Look for lines containing "Date"
         # If line has "Date" but not "Delivery" -> Order Date
         # If line has "Date" and "Delivery" -> Delivery Date
         # Handle case where label is on one line and value is on the next
         
+        # Date patterns: numeric dates and full format like "Tue Nov 25, 2025"
+        full_date_pattern = r"(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}"
         date_pattern = r"(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})"
         
         for i, line in enumerate(lines):
@@ -185,17 +196,21 @@ class POReader:
                 # Determine type based on THIS line (the label line)
                 is_delivery = any(k in lower_line for k in ["delivery", "ship", "due"])
                 
-                # Look for date value in THIS line
-                dates_in_line = re.findall(date_pattern, line)
+                # Look for date value in THIS line - try full format first, then numeric
+                full_dates_in_line = re.findall(full_date_pattern, line)
+                dates_in_line = re.findall(date_pattern, line) if not full_dates_in_line else []
                 
                 # If not found, look in NEXT line
-                if not dates_in_line and i + 1 < len(lines):
+                if not full_dates_in_line and not dates_in_line and i + 1 < len(lines):
                     next_line = lines[i+1]
-                    dates_in_line = re.findall(date_pattern, next_line)
+                    full_dates_in_line = re.findall(full_date_pattern, next_line)
+                    if not full_dates_in_line:
+                        dates_in_line = re.findall(date_pattern, next_line)
                 
-                if dates_in_line:
-                    date_val = dates_in_line[0]
-                    
+                # Prefer full date format over numeric
+                date_val = full_dates_in_line[0] if full_dates_in_line else (dates_in_line[0] if dates_in_line else None)
+                
+                if date_val:
                     if is_delivery:
                         # Avoid overwriting if we already found one, unless this one looks better?
                         # For now, just take the first one we find
@@ -253,28 +268,77 @@ class POReader:
                     start_idx = i
                     break
             if start_idx != -1:
-                # Take next 3 lines, stopping if we hit another keyword or empty line
+                # Take next lines, stopping if we hit another keyword or empty line
                 addr = []
-                for j in range(start_idx + 1, min(start_idx + 5, len(lines))):
+                for j in range(start_idx + 1, min(start_idx + 8, len(lines))):
                     l = lines[j]
-                    if any(k in l.lower() for k in ["ship to:", "bill to:", "item", "qty", "total"]):
+                    # Stop at keywords that indicate end of address block
+                    if any(k in l.lower() for k in ["ship to:", "bill to:", "item", "qty", "total", "delivery:", "account #", "po #", "po#", "terms:", "ordered by:"]):
                         break
+                    if not l.strip():
+                        continue
                     addr.append(l)
                 return "\n".join(addr)
             return "Unknown"
 
         # Address (Bill To)
-        if attn_text:
+        # Special handling: sometimes "Bill To" and "Ship To" are on the same line
+        # Try to extract "Bill To: <name>" from the same line first
+        bill_to_found = False
+        if not attn_text:
+            # First, check if Bill To is on the same line as Ship To
+            for line in lines:
+                if "bill to" in line.lower():
+                    # Try to extract text after "Bill To:"
+                    match = re.search(r"Bill To:\s*(.+?)(?:Ship To|Nutrition|$)", line, re.IGNORECASE)
+                    if match:
+                        bill_to_name = match.group(1).strip()
+                        if bill_to_name:
+                            data["customer_address"] = bill_to_name
+                            bill_to_found = True
+                            break
+            
+            # If not found on same line, find Bill To and Ship To positions in the text
+            if not bill_to_found:
+                bill_to_idx = -1
+                ship_to_idx = -1
+                for i, line in enumerate(lines):
+                    if "bill to" in line.lower() and bill_to_idx == -1:
+                        bill_to_idx = i
+                    if "ship to" in line.lower() and ship_to_idx == -1:
+                        ship_to_idx = i
+                
+                # Extract address between Bill To and Ship To (or next section)
+                if bill_to_idx != -1:
+                    addr = []
+                    end_idx = ship_to_idx if ship_to_idx > bill_to_idx else min(bill_to_idx + 8, len(lines))
+                    for j in range(bill_to_idx + 1, end_idx):
+                        l = lines[j]
+                        # Stop at keywords
+                        if any(k in l.lower() for k in ["ship to", "delivery:", "account #", "po #", "po#", "terms:", "ordered by:", "status:"]):
+                            break
+                        if not l.strip():
+                            continue
+                        addr.append(l.strip())
+                    
+                    if addr:
+                        data["customer_address"] = "\n".join(addr)
+                        bill_to_found = True
+        
+        if attn_text and not bill_to_found:
             attn_lines = [l.strip() for l in attn_text.split('\n') if l.strip()]
-            # Remove "ATTN:" from the first line if present
+            # Remove "Bill To" or "ATTN:" from the first line if present
             if attn_lines:
-                attn_lines[0] = re.sub(r"ATTN:?", "", attn_lines[0], flags=re.IGNORECASE).strip()
+                attn_lines[0] = re.sub(r"(Bill To|ATTN):?", "", attn_lines[0], flags=re.IGNORECASE).strip()
+                # If first line is now empty after removal, skip it
+                if not attn_lines[0]:
+                    attn_lines = attn_lines[1:]
             
             addr_parts = []
             for line in attn_lines:
                 lower_line = line.lower()
                 # Stop at keywords
-                if any(k in lower_line for k in ["date:", "po #", "vendor", "ship to"]):
+                if any(k in lower_line for k in ["date:", "po #", "po#", "vendor", "ship to", "delivery:", "account #"]):
                     break
                 if not line.strip():
                     continue
@@ -289,10 +353,15 @@ class POReader:
             
             if addr_parts:
                 data["customer_address"] = "\n".join(addr_parts)
-            else:
-                data["customer_address"] = "Unknown"
-        else:
-            data["customer_address"] = extract_address_block("bill to")
+                bill_to_found = True
+        
+        if not bill_to_found:
+            # Try to find "Bill To:" specifically (with colon) first
+            bill_to_addr = extract_address_block("bill to:")
+            if bill_to_addr == "Unknown":
+                # Fallback to generic "bill to"
+                bill_to_addr = extract_address_block("bill to")
+            data["customer_address"] = bill_to_addr
         
         # Use spatial extraction for Ship To if available
         if ship_to_text:
@@ -341,6 +410,13 @@ class POReader:
         # Fallback: If Address (Bill To) is unknown but Delivery Address (Ship To) is known, use Delivery Address
         if (data["customer_address"] == "Unknown" or not data["customer_address"]) and data["delivery_address"] != "Unknown":
             data["customer_address"] = data["delivery_address"]
+        
+        # Fallback: If customer name is still Unknown, try to extract from Bill To address
+        if data["customer"] == "Unknown" and data["customer_address"] != "Unknown":
+            # Extract first line of customer_address as customer name
+            first_line = data["customer_address"].split('\n')[0].strip()
+            if first_line and not first_line[0].isdigit():  # Make sure it's not an address line starting with a number
+                data["customer"] = first_line
 
         # 5. Items (Try to find a table with Qty/Rate/Amount)
         items_found = False
